@@ -14,6 +14,11 @@ export const egressKeys = {
   detail: (egressId: string) => [...egressKeys.all, egressId] as const,
 };
 
+export const recordingKeys = {
+  all: ['recordings'] as const,
+  list: () => [...recordingKeys.all, 'list'] as const,
+};
+
 // ==================== Hooks ====================
 
 /**
@@ -57,6 +62,21 @@ export function useDeleteEgress() {
         description: error.message,
       });
     },
+  });
+}
+
+/**
+ * Fetch all recordings from the database (historical + active).
+ * This is the preferred hook for the Recordings page because it reads
+ * from the call_recordings table instead of the LiveKit egress API
+ * (which only returns active/in-progress egresses).
+ */
+export function useAllRecordings(limit = 100, offset = 0) {
+  return useQuery({
+    queryKey: [...recordingKeys.list(), limit, offset],
+    queryFn: () => apiClient.getAllRecordings(limit, offset),
+    staleTime: 10000, // 10 seconds
+    refetchInterval: 15000, // Refetch every 15 seconds
   });
 }
 

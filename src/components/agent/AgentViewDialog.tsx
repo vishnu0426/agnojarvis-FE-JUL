@@ -41,6 +41,8 @@ import {
 import { format } from "date-fns";
 import { toast } from "sonner";
 import type { AgentConfig as AgentConfigType } from "@/services/api";
+import { languageLabel, sectionLanguages } from "@/lib/languages";
+import { useLanguageCatalog } from "@/hooks/use-language-catalog";
 import { useChatContext } from "@/contexts/ChatContext";
 
 interface AgentViewDialogProps {
@@ -50,6 +52,7 @@ interface AgentViewDialogProps {
 }
 
 export function AgentViewDialog({ agentId, open, onClose }: AgentViewDialogProps) {
+  const { catalog } = useLanguageCatalog();
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState("configuration");
   const { openChat } = useChatContext();
@@ -262,7 +265,7 @@ export function AgentViewDialog({ agentId, open, onClose }: AgentViewDialogProps
                         <div>
                           <label className="text-sm font-medium">Language</label>
                           <p className="text-sm text-muted-foreground mt-1 uppercase">
-                            {config?.config.prompt.language}
+                            {sectionLanguages(config?.config.prompt).map((c) => languageLabel(c, catalog)).join(", ")}
                           </p>
                         </div>
                       </div>
@@ -313,7 +316,7 @@ export function AgentViewDialog({ agentId, open, onClose }: AgentViewDialogProps
                   {/* STT Configuration */}
                   <Card>
                     <CardHeader>
-                      <CardTitle>Speech-to-Text (STT)</CardTitle>
+                      <CardTitle>Speech Recognition (ASR / STT)</CardTitle>
                       <CardDescription>
                         Speech recognition configuration
                       </CardDescription>

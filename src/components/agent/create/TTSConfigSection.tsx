@@ -10,8 +10,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LanguageMultiSelect } from "@/components/ui/language-multi-select";
+import { LanguageCoverageNote } from "@/components/agent/create/LanguageCoverageNote";
 import type { AgentConfig, ProviderWhitelist } from "@/services/api";
-import { formatProviderName, formatLanguageCode } from "@/lib/format-provider";
+import { formatProviderName } from "@/lib/format-provider";
+import { useLanguageCatalog } from "@/hooks/use-language-catalog";
+import {
+  buildLanguageOptions,
+  mapToProviderCodes,
+  sectionLanguages,
+  unsupportedLanguages,
+  ttsMultiLanguageHint,
+} from "@/lib/languages";
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -19,9 +29,12 @@ interface TTSConfigSectionProps {
   config: AgentConfig["tts"];
   whitelists?: ProviderWhitelist;
   onChange: (config: AgentConfig["tts"]) => void;
+  /** Languages the agent speaks; used to warn when the voice would not cover one of them. */
+  agentLanguages?: string[];
 }
 
-export function TTSConfigSection({ config, whitelists, onChange }: TTSConfigSectionProps) {
+export function TTSConfigSection({ config, whitelists, onChange, agentLanguages }: TTSConfigSectionProps) {
+  const { catalog } = useLanguageCatalog();
   const isSarvam = config.provider === "sarvam";
 
   // Unique providers from whitelist
@@ -67,27 +80,6 @@ export function TTSConfigSection({ config, whitelists, onChange }: TTSConfigSect
     );
   };
 
-  // Language list from whitelist metadata for the current provider
-  const getLanguageOptions = (): { code: string; label: string }[] => {
-    const meta = getProviderMetadata(config.provider);
-    const langs: string[] = meta.languages ?? [];
-    if (langs.length > 0) {
-      return langs.map((code) => ({ code, label: formatLanguageCode(code) }));
-    }
-    // Fallback defaults
-    if (isSarvam) {
-      return [
-        { code: "hi-IN", label: "Hindi (India)" },
-        { code: "en-IN", label: "English (India)" },
-      ];
-    }
-    return [
-      { code: "en-US", label: "English (US)" },
-      { code: "en-GB", label: "English (UK)" },
-      { code: "hi-IN", label: "Hindi (India)" },
-    ];
-  };
-
   // Voices (non-Sarvam): filtered by provider and engine, deduplicated to avoid React key collisions
   const getTTSVoices = (): string[] => {
     if (!whitelists?.tts || isSarvam) return [];
@@ -105,13 +97,28 @@ export function TTSConfigSection({ config, whitelists, onChange }: TTSConfigSect
     return [...new Set(voices)];
   };
 
-  const languageOptions = getLanguageOptions();
+  const providerCodes: string[] | undefined = getProviderMetadata(config.provider).languages;
+  const selectedLanguages = sectionLanguages(config);
+  const languageOptions = buildLanguageOptions(catalog, providerCodes, formatProviderName(config.provider));
+  const languageHint = ttsMultiLanguageHint(config.provider, selectedLanguages);
   const sarvamModels = getSarvamModels();
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   const updateConfig = (field: keyof AgentConfig["tts"], value: string) => {
     onChange({ ...config, [field]: value });
+  };
+
+  const handleLanguagesChange = (next: string[]) => {
+    if (next.length === 0) return; // at least one language is required
+    onChange({ ...config, language: next[0], languages: next });
+  };
+
+  // Keep the languages the new provider also supports; otherwise start from its first one.
+  const languagesFor = (provider: string, fallback: string): string[] => {
+    const codes: string[] | undefined = getProviderMetadata(provider).languages;
+    const kept = mapToProviderCodes(selectedLanguages, codes, catalog.aliases);
+    return kept.length > 0 ? kept : [codes?.find((c) => c !== "multi") ?? fallback];
   };
 
   const handleProviderChange = (provider: string) => {
@@ -121,12 +128,13 @@ export function TTSConfigSection({ config, whitelists, onChange }: TTSConfigSect
       const defaultModel =
         Object.keys(speakersByModel)[0] || "bulbul:v2";
       const defaultSpeaker = (speakersByModel[defaultModel] ?? [])[0] || "";
-      const defaultLang = (meta.languages ?? ["hi-IN"])[0];
+      const langs = languagesFor("sarvam", "hi-IN");
       onChange({
         provider,
         voice: defaultModel,
         speaker: defaultSpeaker,
-        language: defaultLang,
+        language: langs[0],
+        languages: langs,
         speech_engine: undefined,
       });
     } else {
@@ -135,13 +143,15 @@ export function TTSConfigSection({ config, whitelists, onChange }: TTSConfigSect
           ?.filter((item) => item.provider_name === provider)
           .map((item) => item.model_name) || [];
       const provMeta = getProviderMetadata(provider);
-      const defaultLang = (provMeta.languages ?? ["en-US"])[0];
+      void provMeta;
+      const langs = languagesFor(provider, "en-US");
       onChange({
         provider,
         voice: voices[0] || "",
         speaker: undefined,
         speech_engine: provider === "aws" ? "standard" : undefined,
-        language: defaultLang,
+        language: langs[0],
+        languages: langs,
       });
     }
   };
@@ -280,32 +290,34 @@ export function TTSConfigSection({ config, whitelists, onChange }: TTSConfigSect
         </div>
       )}
 
-      {/* Language (all non-AWS providers including Sarvam) */}
-      {config.provider !== "aws" && (
-        <div className="space-y-2">
-          <div>
-            <h3 className="text-sm font-semibold mb-1">Language</h3>
-            <p className="text-sm text-muted-foreground">
-              Voice language and locale.
-            </p>
-          </div>
-          <Select
-            value={config.language ?? (isSarvam ? "hi-IN" : "en-US")}
-            onValueChange={(v) => updateConfig("language", v)}
-          >
-            <SelectTrigger className="max-w-xs mt-3">
-              <SelectValue placeholder="Select language" />
-            </SelectTrigger>
-            <SelectContent>
-              {languageOptions.map(({ code, label }) => (
-                <SelectItem key={code} value={code}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Languages (every provider) */}
+      <div className="space-y-2">
+        <div>
+          <h3 className="text-sm font-semibold mb-1">Languages</h3>
+          <p className="text-sm text-muted-foreground">
+            Languages the voice can speak. The first (starred) is the primary language.
+          </p>
         </div>
-      )}
+        <div className="mt-3 max-w-xl space-y-2">
+          <LanguageMultiSelect
+            id="tts-languages"
+            value={selectedLanguages}
+            onChange={handleLanguagesChange}
+            options={languageOptions}
+            max={catalog.max_languages}
+            placeholder="Select languages"
+          />
+          <LanguageCoverageNote
+            catalog={catalog}
+            selected={selectedLanguages}
+            agentLanguages={agentLanguages}
+            unsupported={unsupportedLanguages(selectedLanguages, providerCodes, catalog.aliases)}
+            providerName={formatProviderName(config.provider)}
+            what="speak"
+            hint={languageHint}
+          />
+        </div>
+      </div>
     </div>
   );
 }

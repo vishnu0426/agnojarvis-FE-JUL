@@ -23,11 +23,18 @@ import { STTConfigSection } from "@/components/agent/create/STTConfigSection";
 import { TTSConfigSection } from "@/components/agent/create/TTSConfigSection";
 import { ToolsConfigSection } from "@/components/agent/create/ToolsConfigSection";
 import { AdvancedConfigSection } from "@/components/agent/create/AdvancedConfigSection";
+import { useLanguageCatalog } from "@/hooks/use-language-catalog";
+import {
+  MAX_GREETING_CHARS,
+  MAX_SYSTEM_PROMPT_CHARS,
+  sectionLanguages,
+  syncLanguagesAfterPromptChange,
+} from "@/lib/languages";
 
 const CONFIG_TABS = [
   { id: "prompt", label: "Prompt" },
   { id: "llm", label: "LLM Settings" },
-  { id: "stt", label: "Speech-to-Text" },
+  { id: "stt", label: "Speech Recognition (ASR)" },
   { id: "tts", label: "Text-to-Speech" },
   { id: "tools", label: "Tools" },
   { id: "advanced", label: "Advanced" },
@@ -38,6 +45,7 @@ export default function CreateAgent() {
   const createAgent = useCreateAgent();
   const { data: whitelists } = useProviderWhitelists();
   const { data: tools } = useToolDefinitions();
+  const { catalog } = useLanguageCatalog();
 
   const [activeTab, setActiveTab] = useState("prompt");
   const [name, setName] = useState("");
@@ -47,6 +55,7 @@ export default function CreateAgent() {
       greeting: "Hello! How can I help you today?",
       tone: "professional",
       language: "en",
+      languages: ["en"],
     },
     llm: {
       provider: "openai",
@@ -56,14 +65,16 @@ export default function CreateAgent() {
     },
     stt: {
       provider: "deepgram",
-      model: "nova-2",
+      model: "nova-3",
       language: "en",
+      languages: ["en"],
     },
     tts: {
       provider: "aws",
       voice: "Matthew",
       speech_engine: "standard",
       language: "en-US",
+      languages: ["en-US"],
     },
     tools: {
       transfer_to_department: true,
@@ -87,6 +98,19 @@ export default function CreateAgent() {
   const handleCreate = async () => {
     if (!name.trim()) {
       toast.error("Please enter an agent name");
+      return;
+    }
+
+    if (config.prompt.system_prompt.length > MAX_SYSTEM_PROMPT_CHARS) {
+      toast.error(
+        `Instructions are ${config.prompt.system_prompt.length.toLocaleString()} characters; the limit is ${MAX_SYSTEM_PROMPT_CHARS.toLocaleString()}. Shorten them on the Prompt tab.`
+      );
+      setActiveTab("prompt");
+      return;
+    }
+    if ((config.prompt.greeting || "").length > MAX_GREETING_CHARS) {
+      toast.error(`The welcome message is over ${MAX_GREETING_CHARS} characters.`);
+      setActiveTab("prompt");
       return;
     }
 
@@ -115,7 +139,9 @@ export default function CreateAgent() {
             name={name}
             config={config.prompt}
             onNameChange={setName}
-            onChange={(prompt) => setConfig({ ...config, prompt })}
+            onChange={(prompt) =>
+              setConfig(syncLanguagesAfterPromptChange(config, prompt, whitelists, catalog.aliases))
+            }
           />
         );
       case "llm":
@@ -131,6 +157,7 @@ export default function CreateAgent() {
           <STTConfigSection
             config={config.stt}
             whitelists={whitelists}
+            agentLanguages={sectionLanguages(config.prompt)}
             onChange={(stt) => setConfig({ ...config, stt })}
           />
         );
@@ -139,6 +166,7 @@ export default function CreateAgent() {
           <TTSConfigSection
             config={config.tts}
             whitelists={whitelists}
+            agentLanguages={sectionLanguages(config.prompt)}
             onChange={(tts) => setConfig({ ...config, tts })}
           />
         );

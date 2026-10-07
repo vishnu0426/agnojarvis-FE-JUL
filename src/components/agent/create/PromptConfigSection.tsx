@@ -12,7 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LanguageMultiSelect } from "@/components/ui/language-multi-select";
 import type { AgentConfig } from "@/services/api";
+import { useLanguageCatalog } from "@/hooks/use-language-catalog";
+import {
+  buildLanguageOptions,
+  MAX_GREETING_CHARS,
+  MAX_SYSTEM_PROMPT_CHARS,
+  sectionLanguages,
+} from "@/lib/languages";
 
 interface PromptConfigSectionProps {
   name: string;
@@ -30,18 +38,26 @@ const TONES = [
   { value: "empathetic", label: "Empathetic" },
 ];
 
-const LANGUAGES = [
-  { value: "en", label: "English" },
-  { value: "es", label: "Spanish" },
-  { value: "fr", label: "French" },
-  { value: "de", label: "German" },
-  { value: "it", label: "Italian" },
-  { value: "pt", label: "Portuguese" },
-  { value: "zh", label: "Chinese" },
-  { value: "ja", label: "Japanese" },
-];
+function CharCounter({ used, max }: { used: number; max: number }) {
+  const over = used > max;
+  return (
+    <p className={`text-xs ${over ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+      {used.toLocaleString()} / {max.toLocaleString()} characters
+      {over ? ` - ${(used - max).toLocaleString()} over the limit, the agent cannot be saved` : ""}
+    </p>
+  );
+}
 
 export function PromptConfigSection({ name, config, onNameChange, onChange, readOnly = false }: PromptConfigSectionProps) {
+  const { catalog } = useLanguageCatalog();
+  const languageOptions = buildLanguageOptions(catalog);
+  const selectedLanguages = sectionLanguages(config);
+
+  const handleLanguagesChange = (next: string[]) => {
+    if (next.length === 0) return; // at least one language is required
+    onChange({ ...config, language: next[0], languages: next });
+  };
+
   const updateConfig = (field: keyof AgentConfig["prompt"], value: string) => {
     onChange({
       ...config,
@@ -85,6 +101,7 @@ export function PromptConfigSection({ name, config, onNameChange, onChange, read
           rows={10}
           className="font-mono text-xs resize-none"
         />
+        <CharCounter used={config.system_prompt.length} max={MAX_SYSTEM_PROMPT_CHARS} />
       </div>
 
       {/* Welcome Message */}
@@ -103,6 +120,7 @@ export function PromptConfigSection({ name, config, onNameChange, onChange, read
           rows={3}
           className="font-mono text-xs resize-none"
         />
+        <CharCounter used={(config.greeting || "").length} max={MAX_GREETING_CHARS} />
       </div>
 
       {/* Tone and Language */}
@@ -130,23 +148,20 @@ export function PromptConfigSection({ name, config, onNameChange, onChange, read
 
         <div className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold mb-1">Language</h3>
+            <h3 className="text-sm font-semibold mb-1">Languages</h3>
             <p className="text-sm text-muted-foreground">
-              Primary language for responses
+              Languages the agent can speak. It starts in the primary (starred) one and replies in the
+              caller's language when it is on this list.
             </p>
           </div>
-          <Select value={config.language} onValueChange={(value) => updateConfig("language", value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select language" />
-            </SelectTrigger>
-            <SelectContent>
-              {LANGUAGES.map((lang) => (
-                <SelectItem key={lang.value} value={lang.value}>
-                  {lang.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <LanguageMultiSelect
+            id="agent-languages"
+            value={selectedLanguages}
+            onChange={handleLanguagesChange}
+            options={languageOptions}
+            max={catalog.max_languages}
+            placeholder="Select languages"
+          />
         </div>
       </div>
     </div>

@@ -620,7 +620,8 @@ export interface PromptConfig {
   system_prompt: string;
   greeting?: string;
   tone: string;
-  language: string;
+  language: string; // primary language (first of `languages`)
+  languages?: string[]; // every language the agent may speak; first is primary
   personality_traits?: string[];
 }
 
@@ -631,9 +632,17 @@ export interface ProviderConfig {
   speaker?: string;
   temperature?: number;
   max_tokens?: number;
-  language?: string;
+  language?: string; // primary language (first of `languages`)
+  languages?: string[]; // STT: languages to recognise; TTS: languages to speak
   speech_engine?: string;
   secret_ref?: string;
+}
+
+export interface LanguageCatalog {
+  languages: Array<{ code: string; name: string; native: string }>;
+  special: Array<{ code: string; name: string; native: string }>;
+  aliases: Record<string, string>;
+  max_languages: number;
 }
 
 export interface MCPServerConfig {
@@ -670,12 +679,40 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string;
   conversation_history?: ChatMessage[];
+  /** Used by tools such as schedule_callback, which needs a number to call back. */
+  caller_phone?: string;
+  caller_name?: string;
+  caller_email?: string;
+  /** false = plain text chat without tools. */
+  execute_tools?: boolean;
+  /** true = tools run without outside effects (nothing is saved or sent). */
+  dry_run?: boolean;
+}
+
+export interface ChatToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+  result: string;
+  status: 'ok' | 'error' | 'handoff' | 'ended' | 'dry_run';
+  duration_ms: number;
+}
+
+/** Set when the agent asked for a human; a chat has no phone line, so the channel must route it. */
+export interface ChatHandoff {
+  type: 'department' | 'number';
+  department?: string;
+  target?: string;
+  requested?: string;
+  reason?: string;
 }
 
 export interface ChatResponse {
   message: string;
   agent_name: string;
   timestamp: string;
+  tool_calls?: ChatToolCall[];
+  handoff?: ChatHandoff | null;
+  ended?: boolean;
 }
 
 export interface GreetingResponse {
@@ -917,10 +954,18 @@ export interface CallRecording {
   recorded_at?: string | null;
   egress_id?: string | null;
   status: string;
+  room_name?: string | null;
+  caller_phone?: string | null;
+  call_status?: string | null;
 }
 
 export interface CallRecordingsResponse {
   recordings: CallRecording[];
+}
+
+export interface AllRecordingsResponse {
+  recordings: CallRecording[];
+  total: number;
 }
 
 // ==================== SIP Trunk Types ====================
@@ -966,6 +1011,21 @@ export interface AnalyticsMetrics {
 
 // ==================== API Client ====================
 
+/** FastAPI returns `detail` as a string, or (422) an array of { loc, msg } objects. */
+export function formatApiError(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => {
+        const field = Array.isArray(d?.loc) ? d.loc.filter((p: unknown) => p !== 'body' && p !== 'initial_config').join('.') : '';
+        return field ? `${field}: ${d?.msg ?? 'invalid value'}` : String(d?.msg ?? JSON.stringify(d));
+      })
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') return JSON.stringify(detail);
+  return '';
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -989,7 +1049,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || `HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(formatApiError(error.detail) || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     return response.json();
@@ -1070,6 +1130,10 @@ class ApiClient {
     return this.request<any>(`/api/v1/providers/metadata/${providerType}/${providerName}`);
   }
 
+  async getLanguages(): Promise<LanguageCatalog> {
+    return this.request<LanguageCatalog>('/api/v1/languages');
+  }
+
   // ==================== Tool Definitions ====================
 
   async getToolDefinitions(): Promise<ToolDefinition[]> {
@@ -1128,6 +1192,10 @@ class ApiClient {
   }
 
   // ==================== Call Recordings ====================
+
+  async getAllRecordings(limit = 100, offset = 0): Promise<AllRecordingsResponse> {
+    return this.request<AllRecordingsResponse>(`/api/v1/recordings?limit=${limit}&offset=${offset}`);
+  }
 
   async getCallRecordings(callId: string): Promise<CallRecordingsResponse> {
     return this.request<CallRecordingsResponse>(`/api/v1/recordings/call/${callId}`);

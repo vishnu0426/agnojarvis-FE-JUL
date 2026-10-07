@@ -41,6 +41,17 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LanguageMultiSelect } from "@/components/ui/language-multi-select";
+import { LanguageCoverageNote } from "@/components/agent/create/LanguageCoverageNote";
+import { useLanguageCatalog } from "@/hooks/use-language-catalog";
+import {
+  buildLanguageOptions,
+  sectionLanguages,
+  sttMultiLanguageHint,
+  ttsMultiLanguageHint,
+  syncLanguagesAfterPromptChange,
+  unsupportedLanguages,
+} from "@/lib/languages";
 
 interface AgentConfigEditorProps {
   config: AgentConfig;
@@ -60,6 +71,7 @@ export function AgentConfigEditor({
   isSaving = false,
 }: AgentConfigEditorProps) {
   const [editedConfig, setEditedConfig] = useState<AgentConfig>(config);
+  const { catalog } = useLanguageCatalog();
   const [sttLanguages, setSttLanguages] = useState<string[]>([]);
   const [ttsLanguages, setTtsLanguages] = useState<string[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -124,6 +136,33 @@ export function AgentConfigEditor({
 
   const handleSave = () => {
     onSave(editedConfig);
+  };
+
+  // Provider language codes: the live metadata fetch, else the whitelist row.
+  const providerLanguageCodes = (kind: "stt" | "tts", fetched: string[]): string[] | undefined => {
+    if (fetched.length > 0) return fetched;
+    const provider = editedConfig[kind].provider;
+    return whitelists?.[kind]?.find((i) => i.provider_name === provider)?.metadata?.languages;
+  };
+
+  const setAgentLanguages = (next: string[]) => {
+    if (next.length === 0) return; // at least one language is required
+    setEditedConfig(
+      syncLanguagesAfterPromptChange(
+        editedConfig,
+        { ...editedConfig.prompt, language: next[0], languages: next },
+        whitelists,
+        catalog.aliases
+      )
+    );
+  };
+
+  const setComponentLanguages = (kind: "stt" | "tts", next: string[]) => {
+    if (next.length === 0) return;
+    setEditedConfig({
+      ...editedConfig,
+      [kind]: { ...editedConfig[kind], language: next[0], languages: next },
+    });
   };
 
   const updatePrompt = (field: string, value: any) => {
@@ -436,27 +475,18 @@ export function AgentConfigEditor({
                       </p>
                     </div>
                     <div className="space-y-3">
-                      <Label htmlFor="language" className="text-base font-medium">Language</Label>
-                      <Select
-                        value={editedConfig.prompt.language}
-                        onValueChange={(value) => updatePrompt("language", value)}
-                      >
-                        <SelectTrigger id="language" className="h-11">
-                          <SelectValue placeholder="Select language" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="en">English (EN)</SelectItem>
-                          <SelectItem value="es">Spanish (ES)</SelectItem>
-                          <SelectItem value="fr">French (FR)</SelectItem>
-                          <SelectItem value="de">German (DE)</SelectItem>
-                          <SelectItem value="it">Italian (IT)</SelectItem>
-                          <SelectItem value="pt">Portuguese (PT)</SelectItem>
-                          <SelectItem value="zh">Chinese (ZH)</SelectItem>
-                          <SelectItem value="ja">Japanese (JA)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label htmlFor="language" className="text-base font-medium">Languages</Label>
+                      <LanguageMultiSelect
+                        id="language"
+                        value={sectionLanguages(editedConfig.prompt)}
+                        onChange={setAgentLanguages}
+                        options={buildLanguageOptions(catalog)}
+                        max={catalog.max_languages}
+                        placeholder="Select languages"
+                      />
                       <p className="text-sm text-muted-foreground">
-                        Primary language for responses
+                        Languages the agent can speak. It starts in the primary (starred) one and replies in the
+                        caller's language when it is on this list.
                       </p>
                     </div>
                   </div>
@@ -579,7 +609,7 @@ export function AgentConfigEditor({
               <Card>
                 <CardHeader>
                   <div className="flex items-center gap-3">
-                    <CardTitle>Speech-to-Text (STT)</CardTitle>
+                    <CardTitle>Speech Recognition (ASR / STT)</CardTitle>
                     {isSTTConfigured ? (
                       <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
                     ) : (
@@ -629,32 +659,33 @@ export function AgentConfigEditor({
                       </Select>
                     </div>
                     <div className="space-y-3">
-                      <Label htmlFor="stt_language" className="text-base font-medium">Language</Label>
-                      {sttLanguages.length > 0 ? (
-                        <Select
-                          value={editedConfig.stt.language || sttLanguages[0]}
-                          onValueChange={(value) => updateSTT("language", value)}
-                        >
-                          <SelectTrigger id="stt_language" className="h-11">
-                            <SelectValue placeholder="Select language" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {sttLanguages.map((lang) => (
-                              <SelectItem key={lang} value={lang}>
-                                {lang.toUpperCase()}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          id="stt_language"
-                          className="h-11"
-                          value={editedConfig.stt.language || ""}
-                          onChange={(e) => updateSTT("language", e.target.value)}
-                          placeholder="e.g., en, multi"
-                        />
-                      )}
+                      <Label htmlFor="stt_language" className="text-base font-medium">Languages to recognise</Label>
+                      <LanguageMultiSelect
+                        id="stt_language"
+                        value={sectionLanguages(editedConfig.stt)}
+                        onChange={(next) => setComponentLanguages("stt", next)}
+                        options={buildLanguageOptions(catalog, providerLanguageCodes("stt", sttLanguages), editedConfig.stt.provider)}
+                        max={catalog.max_languages}
+                        placeholder="Select languages"
+                      />
+                      <LanguageCoverageNote
+                        catalog={catalog}
+                        selected={sectionLanguages(editedConfig.stt)}
+                        agentLanguages={sectionLanguages(editedConfig.prompt)}
+                        what="recognise"
+                        unsupported={unsupportedLanguages(
+                          sectionLanguages(editedConfig.stt),
+                          providerLanguageCodes("stt", sttLanguages),
+                          catalog.aliases
+                        )}
+                        providerName={editedConfig.stt.provider}
+                        hint={sttMultiLanguageHint(
+                          editedConfig.stt.provider,
+                          editedConfig.stt.model ?? "",
+                          sectionLanguages(editedConfig.stt),
+                          catalog.aliases
+                        )}
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -732,38 +763,32 @@ export function AgentConfigEditor({
                             </SelectContent>
                           </Select>
                         </>
-                      ) : ttsLanguages.length > 0 ? (
-                        <>
-                          <Label htmlFor="tts_language" className="text-base font-medium">Language</Label>
-                          <Select
-                            value={editedConfig.tts.language || ttsLanguages[0]}
-                            onValueChange={(value) => updateTTS("language", value)}
-                          >
-                            <SelectTrigger id="tts_language" className="h-11">
-                              <SelectValue placeholder="Select language" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ttsLanguages.map((lang) => (
-                                <SelectItem key={lang} value={lang}>
-                                  {lang.toUpperCase()}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </>
-                      ) : (
-                        <>
-                          <Label htmlFor="tts_language" className="text-base font-medium">Language</Label>
-                          <Input
-                            id="tts_language"
-                            className="h-11"
-                            value={editedConfig.tts.language || ""}
-                            onChange={(e) => updateTTS("language", e.target.value)}
-                            placeholder="e.g., en-US"
-                          />
-                        </>
-                      )}
+                      ) : null}
                     </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Label htmlFor="tts_language" className="text-base font-medium">Languages</Label>
+                    <LanguageMultiSelect
+                      id="tts_language"
+                      value={sectionLanguages(editedConfig.tts)}
+                      onChange={(next) => setComponentLanguages("tts", next)}
+                      options={buildLanguageOptions(catalog, providerLanguageCodes("tts", ttsLanguages), editedConfig.tts.provider)}
+                      max={catalog.max_languages}
+                      placeholder="Select languages"
+                    />
+                    <LanguageCoverageNote
+                      catalog={catalog}
+                      selected={sectionLanguages(editedConfig.tts)}
+                      agentLanguages={sectionLanguages(editedConfig.prompt)}
+                      what="speak"
+                      unsupported={unsupportedLanguages(
+                        sectionLanguages(editedConfig.tts),
+                        providerLanguageCodes("tts", ttsLanguages),
+                        catalog.aliases
+                      )}
+                      providerName={editedConfig.tts.provider}
+                      hint={ttsMultiLanguageHint(editedConfig.tts.provider, sectionLanguages(editedConfig.tts))}
+                    />
                   </div>
                 </CardContent>
               </Card>

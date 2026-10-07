@@ -30,8 +30,11 @@ import { format } from "date-fns";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatProviderName } from "@/lib/format-provider";
+import { languageLabel, sectionLanguages } from "@/lib/languages";
+import { useLanguageCatalog } from "@/hooks/use-language-catalog";
 
 export default function AgentDetails() {
+  const { catalog } = useLanguageCatalog();
   const navigate = useNavigate();
   const { agentId } = useParams<{ agentId: string }>();
   const [activeTab, setActiveTab] = useState("configuration");
@@ -153,7 +156,7 @@ export default function AgentDetails() {
                 <div>
                   <label className="text-sm font-medium">Language</label>
                   <p className="text-sm text-muted-foreground mt-1 uppercase">
-                    {config?.config.prompt.language}
+                    {sectionLanguages(config?.config.prompt).map((c) => languageLabel(c, catalog)).join(", ") || "—"}
                   </p>
                 </div>
               </div>
@@ -202,7 +205,7 @@ export default function AgentDetails() {
           {/* STT Configuration */}
           <Card>
             <CardHeader>
-              <CardTitle>Speech-to-Text (STT)</CardTitle>
+              <CardTitle>Speech Recognition (ASR / STT)</CardTitle>
               <CardDescription>Speech recognition configuration</CardDescription>
             </CardHeader>
             <CardContent>
@@ -222,7 +225,7 @@ export default function AgentDetails() {
                 <div>
                   <label className="text-sm font-medium">Language</label>
                   <p className="text-sm text-muted-foreground mt-1 uppercase">
-                    {config?.config.stt.language || "—"}
+                    {sectionLanguages(config?.config.stt).map((c) => languageLabel(c, catalog)).join(", ") || "—"}
                   </p>
                 </div>
               </div>
@@ -258,7 +261,7 @@ export default function AgentDetails() {
                 <div>
                   <label className="text-sm font-medium">Language</label>
                   <p className="text-sm text-muted-foreground mt-1 uppercase">
-                    {config?.config.tts.language || "—"}
+                    {sectionLanguages(config?.config.tts).map((c) => languageLabel(c, catalog)).join(", ") || "—"}
                   </p>
                 </div>
               </div>

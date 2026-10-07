@@ -33,7 +33,7 @@ import { AdvancedConfigSection } from "@/components/agent/create/AdvancedConfigS
 const CONFIG_TABS = [
   { id: "prompt", label: "Prompt" },
   { id: "llm", label: "LLM Settings" },
-  { id: "stt", label: "Speech-to-Text" },
+  { id: "stt", label: "Speech Recognition (ASR)" },
   { id: "tts", label: "Text-to-Speech" },
   { id: "tools", label: "Tools" },
   { id: "advanced", label: "Advanced" },

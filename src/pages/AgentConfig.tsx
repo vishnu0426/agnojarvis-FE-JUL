@@ -243,6 +243,34 @@ export default function AgentConfig() {
                 </CardContent>
               </Card>
 
+              {/* Realtime (speech-to-speech) Configuration */}
+              {config?.config.pipeline === "realtime" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Speech-to-Speech (Realtime)</CardTitle>
+                    <CardDescription>One model handles speech recognition, reasoning and voice</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-sm font-medium">Provider</label>
+                        <p className="text-sm text-muted-foreground mt-1 capitalize">{config?.config.realtime?.provider}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Model</label>
+                        <p className="text-sm text-muted-foreground mt-1">{config?.config.realtime?.model}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Voice</label>
+                        <p className="text-sm text-muted-foreground mt-1">{config?.config.realtime?.voice}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* LLM / STT / TTS Configuration (cascaded pipeline only) */}
+              {config?.config.pipeline !== "realtime" && (<>
               {/* LLM Configuration */}
               <Card>
                 <CardHeader>
@@ -353,6 +381,7 @@ export default function AgentConfig() {
                   </div>
                 </CardContent>
               </Card>
+              </>)}
 
               {/* Tools Configuration */}
               <Card>

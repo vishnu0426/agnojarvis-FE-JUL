@@ -21,6 +21,8 @@ import { PromptConfigSection } from "@/components/agent/create/PromptConfigSecti
 import { LLMConfigSection } from "@/components/agent/create/LLMConfigSection";
 import { STTConfigSection } from "@/components/agent/create/STTConfigSection";
 import { TTSConfigSection } from "@/components/agent/create/TTSConfigSection";
+import { RealtimeConfigSection } from "@/components/agent/create/RealtimeConfigSection";
+import { PipelineSelector } from "@/components/agent/create/PipelineSelector";
 import { ToolsConfigSection } from "@/components/agent/create/ToolsConfigSection";
 import { AdvancedConfigSection } from "@/components/agent/create/AdvancedConfigSection";
 import { useLanguageCatalog } from "@/hooks/use-language-catalog";
@@ -30,12 +32,18 @@ import {
   sectionLanguages,
   syncLanguagesAfterPromptChange,
 } from "@/lib/languages";
+import { buildConfigPayload, pipelineError, pipelineOf, type PipelineMode } from "@/lib/pipeline";
 
-const CONFIG_TABS = [
+// Tabs depend on the pipeline: cascaded shows LLM/ASR/TTS; realtime shows one Speech-to-speech tab.
+const buildConfigTabs = (pipeline: "cascaded" | "realtime") => [
   { id: "prompt", label: "Prompt" },
-  { id: "llm", label: "LLM Settings" },
-  { id: "stt", label: "Speech Recognition (ASR)" },
-  { id: "tts", label: "Text-to-Speech" },
+  ...(pipeline === "realtime"
+    ? [{ id: "realtime", label: "Speech-to-Speech" }]
+    : [
+        { id: "llm", label: "LLM Settings" },
+        { id: "stt", label: "Speech Recognition (ASR)" },
+        { id: "tts", label: "Text-to-Speech" },
+      ]),
   { id: "tools", label: "Tools" },
   { id: "advanced", label: "Advanced" },
 ];
@@ -50,12 +58,19 @@ export default function CreateAgent() {
   const [activeTab, setActiveTab] = useState("prompt");
   const [name, setName] = useState("");
   const [config, setConfig] = useState<AgentConfigType>({
+    pipeline: "cascaded",
     prompt: {
       system_prompt: "You are a helpful AI assistant.",
       greeting: "Hello! How can I help you today?",
       tone: "professional",
       language: "en",
       languages: ["en"],
+    },
+    realtime: {
+      provider: "openai",
+      model: "gpt-realtime",
+      voice: "marin",
+      temperature: 0.7,
     },
     llm: {
       provider: "openai",
@@ -114,12 +129,19 @@ export default function CreateAgent() {
       return;
     }
 
+    const pErr = pipelineError(config);
+    if (pErr) {
+      toast.error(pErr);
+      setActiveTab(pipelineOf(config) === "realtime" ? "realtime" : "stt");
+      return;
+    }
+
     try {
       await createAgent.mutateAsync({
         name,
         description: "",
         initial_config: {
-          ...config,
+          ...buildConfigPayload(config),
           updated_by: "user",
         },
       });
@@ -142,6 +164,14 @@ export default function CreateAgent() {
             onChange={(prompt) =>
               setConfig(syncLanguagesAfterPromptChange(config, prompt, whitelists, catalog.aliases))
             }
+          />
+        );
+      case "realtime":
+        return (
+          <RealtimeConfigSection
+            config={config.realtime!}
+            whitelists={whitelists}
+            onChange={(realtime) => setConfig({ ...config, realtime })}
           />
         );
       case "llm":
@@ -196,10 +226,21 @@ export default function CreateAgent() {
   return (
     <DashboardLayout title="">
       <div className="min-h-screen">
+        {/* Pipeline mode selector */}
+        <div className="px-6 pt-5 pb-4">
+          <PipelineSelector
+            value={pipelineOf(config)}
+            onChange={(mode) => {
+              setConfig({ ...config, pipeline: mode });
+              setActiveTab("prompt");
+            }}
+          />
+        </div>
+
         {/* Tabs - At the very top */}
         <div className="sticky top-0 z-50 bg-background border-b">
           <div className="flex gap-8 px-6">
-            {CONFIG_TABS.map((tab) => (
+            {buildConfigTabs(pipelineOf(config)).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}

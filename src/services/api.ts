@@ -735,11 +735,18 @@ export interface HTTPToolConfig {
   requests: HTTPRequestConfig[];
 }
 
+/** Cascaded = separate STT+LLM+TTS. Realtime = one speech-to-speech model (lower latency). */
+export type PipelineMode = 'cascaded' | 'realtime';
+
 export interface AgentConfig {
   prompt: PromptConfig;
+  /** Defaults to 'cascaded' when absent (every existing agent). */
+  pipeline?: PipelineMode;
   llm: ProviderConfig;
   stt: ProviderConfig;
   tts: ProviderConfig;
+  /** Present only when pipeline === 'realtime'. */
+  realtime?: ProviderConfig;
   tools: Record<string, boolean>;
   mcp?: MCPConfig;
   http_tool?: HTTPToolConfig;
@@ -756,9 +763,11 @@ export interface AgentConfigResponse {
 
 export interface AgentConfigRequest {
   prompt: PromptConfig;
-  llm: ProviderConfig;
-  stt: ProviderConfig;
-  tts: ProviderConfig;
+  pipeline?: PipelineMode;
+  llm?: ProviderConfig;
+  stt?: ProviderConfig;
+  tts?: ProviderConfig;
+  realtime?: ProviderConfig;
   tools: Record<string, boolean>;
   mcp?: MCPConfig;
   http_tool?: HTTPToolConfig;
@@ -816,6 +825,11 @@ export interface ProviderWhitelistMetadata {
   default_speakers?: Record<string, string>;
   supports_streaming?: boolean;
   supports_multilingual?: boolean;
+  /** Realtime (speech-to-speech) providers: selectable voices and the recommended defaults. */
+  voices?: string[];
+  default_voice?: string;
+  default_model?: string;
+  note?: string;
   [key: string]: unknown;
 }
 
@@ -843,6 +857,15 @@ export interface ProviderWhitelist {
     engines?: string[];
     /** OpenAI: voice id bundled with the model row */
     voice?: string;
+    cost_per_token: number | null;
+    cost_per_minute: number | null;
+    is_enabled: boolean;
+    metadata?: ProviderWhitelistMetadata;
+  }>;
+  /** Speech-to-speech models; voices live in metadata.voices. Absent on older backends. */
+  realtime?: Array<{
+    provider_name: string;
+    model_name: string;
     cost_per_token: number | null;
     cost_per_minute: number | null;
     is_enabled: boolean;
